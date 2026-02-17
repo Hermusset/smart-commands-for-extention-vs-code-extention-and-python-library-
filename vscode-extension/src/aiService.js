@@ -2,40 +2,34 @@ const vscode = require('vscode');
 const https = require('https');
 const http = require('http');
 
-const SYSTEM_PROMPT = `You are an expert terminal command translator. Your job is to convert natural English descriptions into accurate terminal/shell commands.
+// Auto-selected stable models per provider — user never picks these
+const STABLE_MODELS = {
+    openai: 'gpt-4o-mini',
+    gemini: 'gemini-2.5-flash',
+    anthropic: 'claude-3-5-sonnet-20241022',
+    groq: 'llama-3.3-70b-versatile',
+    ollama: 'llama3.2',
+};
 
-RULES:
-1. Return ONLY the command and a brief explanation. No markdown formatting.
-2. Detect the user's operating system and shell from context.
-3. Support ALL technologies including but not limited to:
-   - Git (git commands, branching, merging, rebasing, stashing)
-   - Docker (docker, docker-compose, building, running, networking)
-   - Python (pip, conda, virtualenv, running scripts, Django, Flask, FastAPI)
-   - Node.js (npm, yarn, pnpm, npx)
-   - SQL (mysql, psql, sqlite3)
-   - MongoDB (mongosh, mongodump, mongorestore)
-   - C/C++ (gcc, g++, make, cmake)
-   - Java (javac, java, maven, gradle)
-   - Rust (cargo, rustc)
-   - Go (go build, go run, go test)
-   - Kubernetes (kubectl, helm)
-   - Terraform, Ansible
-   - Streamlit (streamlit run)
-   - AWS CLI, Azure CLI, GCloud
-   - File operations (copy, move, delete, find, grep)
-   - Network (curl, wget, ping, ssh, scp)
-   - System (process management, disk usage, memory)
-   - Package managers (apt, brew, choco, winget)
-4. If the command could be destructive (rm -rf, DROP TABLE, etc.), add a warning in the explanation.
-5. ALWAYS prefer safe, commonly-used command patterns.
-6. For ambiguous requests, provide the most likely intended command.
+const SYSTEM_PROMPT = `You are a terminal command translator. Convert natural English into exact shell commands.
 
-RESPONSE FORMAT (JSON):
+STRICT RULES:
+1. Return ONLY valid JSON — no markdown, no code fences, no extra text.
+2. Use the OS/shell info provided. Generate platform-specific syntax.
+3. The "command" field must contain ONLY the raw, executable command. No placeholders, no comments, no alternatives.
+4. The "explanation" field must be ONE short sentence — what the command does. No tips, no suggestions, no follow-ups.
+5. The "warning" field: set ONLY for destructive commands (rm -rf, DROP TABLE, format, etc.). Otherwise null. Keep it to one sentence max.
+6. Do NOT add extra fields, suggestions, alternatives, or conversational filler.
+7. If the input IS already a valid command, return it as-is.
+8. For ambiguous requests, pick the single most likely command. Never list options.
+
+RESPONSE FORMAT (strict JSON, nothing else):
 {
-  "command": "the exact command to run",
-  "explanation": "brief explanation of what the command does",
-  "warning": "optional warning if the command is destructive"
+  "command": "exact executable command",
+  "explanation": "one-line description",
+  "warning": null
 }`;
+
 
 class AIService {
     /**
@@ -45,53 +39,69 @@ class AIService {
         this.context = context;
     }
 
-    /**
-     * Get the stored API key for the current provider
-     */
-    async getApiKey(provider) {
-        // First try secrets storage
-        let key = await this.context.secrets.get(`aiTerminal.apiKey.${provider}`);
-        if (key) return key;
+    /** Get the currently configured provider */
+    getProvider() {
+        return vscode.workspace.getConfiguration('aiTerminal').get('apiProvider', 'gemini');
+    }
 
-        // Fallback to settings (not recommended, but convenient)
-        const config = vscode.workspace.getConfiguration('aiTerminal');
-        key = config.get('apiKey', '');
+    /** Get the stable model for a provider (auto-selected, not user-configurable) */
+    getModel(provider) {
+        return STABLE_MODELS[provider] || STABLE_MODELS.gemini;
+    }
+
+    /** Get the stored API key for a specific provider */
+    async getApiKey(provider) {
+        const p = provider || this.getProvider();
+        const key = await this.context.secrets.get(`aiTerminal.apiKey.${p}`);
         return key || null;
     }
 
-    /**
-     * Store API key securely
-     */
+    /** Store API key securely for a specific provider */
     async setApiKey(provider, key) {
         await this.context.secrets.store(`aiTerminal.apiKey.${provider}`, key);
     }
 
-    /**
-     * Detect the current shell environment
-     */
+    /** Delete API key for a specific provider */
+    async deleteApiKey(provider) {
+        await this.context.secrets.delete(`aiTerminal.apiKey.${provider}`);
+    }
+
+    /** Check if a provider has an API key configured */
+    async hasApiKey(provider) {
+        if (provider === 'ollama') return true; // No key needed
+        const key = await this.getApiKey(provider);
+        return !!key;
+    }
+
+    /** Detect the current shell */
     detectShell() {
-        const config = vscode.workspace.getConfiguration('aiTerminal');
-        const shellSetting = config.get('shell', 'auto');
-
+        const shellSetting = vscode.workspace.getConfiguration('aiTerminal').get('shell', 'auto');
         if (shellSetting !== 'auto') return shellSetting;
-
-        const platform = process.platform;
-        if (platform === 'win32') return 'powershell';
-        if (platform === 'darwin') return 'zsh';
+        if (process.platform === 'win32') return 'powershell';
+        if (process.platform === 'darwin') return 'zsh';
         return 'bash';
     }
 
     /**
-     * Main translation method
+     * Translate natural language to a terminal command.
+     * Provider + model are auto-resolved from config.
      */
     async translateToCommand(naturalLanguage, cancellationToken) {
-        const config = vscode.workspace.getConfiguration('aiTerminal');
-        const provider = config.get('apiProvider', 'openai');
-        const model = config.get('model', 'gpt-4o-mini');
+        const provider = this.getProvider();
+        const model = this.getModel(provider);
         const shell = this.detectShell();
-        const platform = process.platform === 'win32' ? 'Windows' : process.platform === 'darwin' ? 'macOS' : 'Linux';
+        const platform = process.platform === 'win32' ? 'Windows'
+            : process.platform === 'darwin' ? 'macOS' : 'Linux';
 
-        const userMessage = `OS: ${platform}\nShell: ${shell}\nWorkspace: ${vscode.workspace.workspaceFolders?.[0]?.uri?.fsPath || 'unknown'}\n\nTranslate this to a terminal command: "${naturalLanguage}"`;
+        const cwd = vscode.workspace.workspaceFolders?.[0]?.uri?.fsPath || process.cwd();
+
+        const userMessage = [
+            `OS: ${platform}`,
+            `Shell: ${shell}`,
+            `Working Directory: ${cwd}`,
+            ``,
+            `Translate this to a terminal command: "${naturalLanguage}"`,
+        ].join('\n');
 
         switch (provider) {
             case 'openai':
@@ -105,29 +115,28 @@ class AIService {
             case 'ollama':
                 return this._callOllama(model, userMessage, cancellationToken);
             default:
-                throw new Error(`Unsupported provider: ${provider}`);
+                throw new Error(`Unknown provider: ${provider}. Go to Settings to choose a valid provider.`);
         }
     }
 
-    /**
-     * OpenAI API call
-     */
-    async _callOpenAI(model, userMessage, cancellationToken) {
+    // ────────── Provider API Calls ──────────
+
+    async _callOpenAI(model, userMessage, ct) {
         const apiKey = await this.getApiKey('openai');
-        if (!apiKey) throw new Error('API key not set. Please configure your OpenAI API key in settings.');
+        if (!apiKey) throw new Error('OpenAI API key not set. Open the sidebar to configure it.');
 
         const body = JSON.stringify({
-            model: model || 'gpt-4o-mini',
+            model,
             messages: [
                 { role: 'system', content: SYSTEM_PROMPT },
-                { role: 'user', content: userMessage }
+                { role: 'user', content: userMessage },
             ],
             temperature: 0.1,
             max_tokens: 500,
-            response_format: { type: 'json_object' }
+            response_format: { type: 'json_object' },
         });
 
-        const response = await this._httpsRequest({
+        const resp = await this._httpsRequest({
             hostname: 'api.openai.com',
             path: '/v1/chat/completions',
             method: 'POST',
@@ -135,67 +144,56 @@ class AIService {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${apiKey}`,
             },
-        }, body, cancellationToken);
+        }, body, ct);
 
-        const data = JSON.parse(response);
-        if (data.error) throw new Error(data.error.message);
-
-        const content = data.choices?.[0]?.message?.content;
-        return this._parseResponse(content);
+        const data = JSON.parse(resp);
+        if (data.error) throw new Error(`OpenAI: ${data.error.message}`);
+        return this._parseResponse(data.choices?.[0]?.message?.content);
     }
 
-    /**
-     * Google Gemini API call
-     */
-    async _callGemini(model, userMessage, cancellationToken) {
+    async _callGemini(model, userMessage, ct) {
         const apiKey = await this.getApiKey('gemini');
-        if (!apiKey) throw new Error('API key not set. Please configure your Gemini API key in settings.');
+        if (!apiKey) throw new Error('Gemini API key not set. Open the sidebar to configure it.');
 
         const body = JSON.stringify({
             contents: [{
                 parts: [{
-                    text: `${SYSTEM_PROMPT}\n\n${userMessage}\n\nRespond in JSON format.`
+                    text: `${SYSTEM_PROMPT}\n\n${userMessage}\n\nRespond ONLY with valid JSON.`
                 }]
             }],
             generationConfig: {
                 temperature: 0.1,
                 maxOutputTokens: 500,
-                responseMimeType: 'application/json'
-            }
+                responseMimeType: 'application/json',
+            },
         });
 
-        const geminiModel = model || 'gemini-2.0-flash';
-        const response = await this._httpsRequest({
+        const resp = await this._httpsRequest({
             hostname: 'generativelanguage.googleapis.com',
-            path: `/v1beta/models/${geminiModel}:generateContent?key=${apiKey}`,
+            path: `/v1beta/models/${model}:generateContent?key=${apiKey}`,
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-        }, body, cancellationToken);
+        }, body, ct);
 
-        const data = JSON.parse(response);
-        if (data.error) throw new Error(data.error.message);
-
-        const content = data.candidates?.[0]?.content?.parts?.[0]?.text;
-        return this._parseResponse(content);
+        const data = JSON.parse(resp);
+        if (data.error) throw new Error(`Gemini: ${data.error.message}`);
+        return this._parseResponse(data.candidates?.[0]?.content?.parts?.[0]?.text);
     }
 
-    /**
-     * Anthropic Claude API call
-     */
-    async _callAnthropic(model, userMessage, cancellationToken) {
+    async _callAnthropic(model, userMessage, ct) {
         const apiKey = await this.getApiKey('anthropic');
-        if (!apiKey) throw new Error('API key not set. Please configure your Anthropic API key in settings.');
+        if (!apiKey) throw new Error('Anthropic API key not set. Open the sidebar to configure it.');
 
         const body = JSON.stringify({
-            model: model || 'claude-3-5-sonnet-20241022',
+            model,
             max_tokens: 500,
             system: SYSTEM_PROMPT,
             messages: [
-                { role: 'user', content: userMessage + '\n\nRespond in JSON format.' }
-            ]
+                { role: 'user', content: userMessage + '\n\nRespond ONLY with valid JSON.' }
+            ],
         });
 
-        const response = await this._httpsRequest({
+        const resp = await this._httpsRequest({
             hostname: 'api.anthropic.com',
             path: '/v1/messages',
             method: 'POST',
@@ -204,33 +202,28 @@ class AIService {
                 'x-api-key': apiKey,
                 'anthropic-version': '2023-06-01',
             },
-        }, body, cancellationToken);
+        }, body, ct);
 
-        const data = JSON.parse(response);
-        if (data.error) throw new Error(data.error.message);
-
-        const content = data.content?.[0]?.text;
-        return this._parseResponse(content);
+        const data = JSON.parse(resp);
+        if (data.error) throw new Error(`Anthropic: ${data.error.message}`);
+        return this._parseResponse(data.content?.[0]?.text);
     }
 
-    /**
-     * Groq API call (fast inference)
-     */
-    async _callGroq(model, userMessage, cancellationToken) {
+    async _callGroq(model, userMessage, ct) {
         const apiKey = await this.getApiKey('groq');
-        if (!apiKey) throw new Error('API key not set. Please configure your Groq API key in settings.');
+        if (!apiKey) throw new Error('Groq API key not set. Open the sidebar to configure it.');
 
         const body = JSON.stringify({
-            model: model || 'llama-3.3-70b-versatile',
+            model,
             messages: [
                 { role: 'system', content: SYSTEM_PROMPT },
-                { role: 'user', content: userMessage + '\n\nRespond in JSON format.' }
+                { role: 'user', content: userMessage + '\n\nRespond ONLY with valid JSON.' },
             ],
             temperature: 0.1,
             max_tokens: 500,
         });
 
-        const response = await this._httpsRequest({
+        const resp = await this._httpsRequest({
             hostname: 'api.groq.com',
             path: '/openai/v1/chat/completions',
             method: 'POST',
@@ -238,28 +231,23 @@ class AIService {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${apiKey}`,
             },
-        }, body, cancellationToken);
+        }, body, ct);
 
-        const data = JSON.parse(response);
-        if (data.error) throw new Error(data.error.message);
-
-        const content = data.choices?.[0]?.message?.content;
-        return this._parseResponse(content);
+        const data = JSON.parse(resp);
+        if (data.error) throw new Error(`Groq: ${data.error.message}`);
+        return this._parseResponse(data.choices?.[0]?.message?.content);
     }
 
-    /**
-     * Ollama API call (local models)
-     */
-    async _callOllama(model, userMessage, cancellationToken) {
-        const config = vscode.workspace.getConfiguration('aiTerminal');
-        const endpoint = config.get('ollamaEndpoint', 'http://localhost:11434');
-
+    async _callOllama(model, userMessage, ct) {
+        const endpoint = vscode.workspace.getConfiguration('aiTerminal')
+            .get('ollamaEndpoint', 'http://localhost:11434');
         const url = new URL(endpoint);
+
         const body = JSON.stringify({
-            model: model || 'llama3.2',
+            model,
             messages: [
                 { role: 'system', content: SYSTEM_PROMPT },
-                { role: 'user', content: userMessage + '\n\nRespond in JSON format.' }
+                { role: 'user', content: userMessage + '\n\nRespond ONLY with valid JSON.' },
             ],
             stream: false,
             format: 'json',
@@ -268,40 +256,31 @@ class AIService {
         const isHttps = url.protocol === 'https:';
         const requestFn = isHttps ? this._httpsRequest : this._httpRequest;
 
-        const response = await requestFn.call(this, {
+        const resp = await requestFn.call(this, {
             hostname: url.hostname,
             port: url.port || (isHttps ? 443 : 11434),
             path: '/api/chat',
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-        }, body, cancellationToken);
+        }, body, ct);
 
-        const data = JSON.parse(response);
-        const content = data.message?.content;
-        return this._parseResponse(content);
+        const data = JSON.parse(resp);
+        return this._parseResponse(data.message?.content);
     }
 
-    /**
-     * Parse AI response
-     */
+    // ────────── Helpers ──────────
+
     _parseResponse(content) {
         if (!content) throw new Error('Empty response from AI provider');
-
         try {
-            // Try to extract JSON from the response
-            let jsonStr = content;
             const jsonMatch = content.match(/\{[\s\S]*\}/);
-            if (jsonMatch) {
-                jsonStr = jsonMatch[0];
-            }
-            const parsed = JSON.parse(jsonStr);
+            const parsed = JSON.parse(jsonMatch ? jsonMatch[0] : content);
             return {
                 command: parsed.command || '',
                 explanation: parsed.explanation || '',
                 warning: parsed.warning || null,
             };
         } catch {
-            // If JSON parsing fails, try to extract the command directly
             const lines = content.trim().split('\n');
             return {
                 command: lines[0].replace(/^[`$#>\s]+/, '').trim(),
@@ -311,63 +290,39 @@ class AIService {
         }
     }
 
-    /**
-     * HTTPS request helper
-     */
-    _httpsRequest(options, body, cancellationToken) {
+    _httpsRequest(options, body, ct) {
         return new Promise((resolve, reject) => {
             const req = https.request(options, (res) => {
                 let data = '';
                 res.on('data', (chunk) => { data += chunk; });
                 res.on('end', () => resolve(data));
             });
-
-            req.on('error', (error) => reject(new Error(`Network error: ${error.message}`)));
-            req.setTimeout(30000, () => {
-                req.destroy();
-                reject(new Error('Request timed out'));
-            });
-
-            if (cancellationToken) {
-                cancellationToken.onCancellationRequested(() => {
-                    req.destroy();
-                    reject(new Error('Request cancelled'));
-                });
+            req.on('error', (e) => reject(new Error(`Network error: ${e.message}`)));
+            req.setTimeout(30000, () => { req.destroy(); reject(new Error('Request timed out (30s)')); });
+            if (ct?.onCancellationRequested) {
+                ct.onCancellationRequested(() => { req.destroy(); reject(new Error('Cancelled')); });
             }
-
             req.write(body);
             req.end();
         });
     }
 
-    /**
-     * HTTP request helper (for Ollama local)
-     */
-    _httpRequest(options, body, cancellationToken) {
+    _httpRequest(options, body, ct) {
         return new Promise((resolve, reject) => {
             const req = http.request(options, (res) => {
                 let data = '';
                 res.on('data', (chunk) => { data += chunk; });
                 res.on('end', () => resolve(data));
             });
-
-            req.on('error', (error) => reject(new Error(`Network error: ${error.message}`)));
-            req.setTimeout(60000, () => {
-                req.destroy();
-                reject(new Error('Request timed out'));
-            });
-
-            if (cancellationToken) {
-                cancellationToken.onCancellationRequested(() => {
-                    req.destroy();
-                    reject(new Error('Request cancelled'));
-                });
+            req.on('error', (e) => reject(new Error(`Network error: ${e.message}`)));
+            req.setTimeout(120000, () => { req.destroy(); reject(new Error('Request timed out (120s)')); });
+            if (ct?.onCancellationRequested) {
+                ct.onCancellationRequested(() => { req.destroy(); reject(new Error('Cancelled')); });
             }
-
             req.write(body);
             req.end();
         });
     }
 }
 
-module.exports = { AIService };
+module.exports = { AIService, STABLE_MODELS };

@@ -1,66 +1,94 @@
-# AI Terminal Assistant - VS Code Extension
+# ⚡ AI Terminal Assistant - VS Code Extension
 
-> 🤖 Convert plain English to terminal commands using AI. BYOK (Bring Your Own Key) architecture.
+> **Type plain English in the terminal → get real commands → auto-execute.**
 
-## Features
+## What's New in v2.0
 
-- **Natural Language → Commands**: Type what you want in plain English, get the exact terminal command
-- **50+ Technologies**: Git, Docker, Python, SQL, MongoDB, C/C++, Java, Rust, Go, Kubernetes, Terraform, Streamlit, AWS, and more
-- **BYOK Architecture**: Use your own API key from OpenAI, Gemini, Anthropic, Groq, or Ollama (local)
-- **Secure Key Storage**: API keys are stored in VS Code's secure secrets storage
-- **Smart Shell Detection**: Automatically detects PowerShell, Bash, Zsh, or CMD
-- **Command History**: View and re-run previous translations
-- **Edit Before Run**: Review, edit, copy, or run generated commands
+- **Smart Terminal**: Custom AI-powered terminal — type naturally, commands auto-translate and execute
+- **Auto Model Selection**: No model config needed, most stable model auto-selected per provider
+- **Smart Detection**: Knows the difference between English and real commands — real commands pass through directly
+- **Simplified Setup**: Just pick a provider, paste your API key, done
 
 ## Quick Start
 
 1. Install the extension
-2. Open the sidebar (look for the ⚡ icon in the activity bar)
-3. Go to Settings tab → Select your AI provider → Enter your API key
-4. Go to Translate tab → Type your request → Press **Ctrl+Shift+I** or click Translate
+2. Click the ⚡ icon in the Activity Bar
+3. Select your AI provider (Gemini, OpenAI, Groq, etc.)
+4. Paste your API key and click **Save**
+5. Press `Ctrl+Shift+I` to open the **AI Terminal**
+6. Start typing in plain English!
 
-## Usage Examples
+## How It Works
 
-| English Input | Generated Command |
-|---|---|
-| "create a new git branch called feature-auth" | `git checkout -b feature-auth` |
-| "build and run the docker container" | `docker build -t myapp . && docker run -p 3000:3000 myapp` |
-| "install flask and run my app" | `pip install flask && python app.py` |
-| "show all running containers" | `docker ps` |
-| "connect to postgres and list tables" | `psql -U postgres -c '\\dt'` |
-| "compile my c++ program and run it" | `g++ main.cpp -o main && ./main` |
-| "run streamlit app" | `streamlit run app.py` |
+The AI Terminal is a custom shell that understands both:
+
+**Natural Language** (auto-translated + executed):
+```
+> create a new git branch called feature-auth
+  ✓ git checkout -b feature-auth
+    Creates and switches to a new branch
+
+> build docker image and run on port 3000
+  ✓ docker build -t app . && docker run -p 3000:3000 app
+```
+
+**Real Commands** (executed directly):
+```
+> git status
+> docker ps -a
+> npm install
+```
+
+The terminal auto-detects which is which — no special syntax needed.
+
+## Features
+
+- **⚡ Smart Terminal**: Type English, get commands, auto-execute
+- **🔑 BYOK**: Bring your own API key — works with 5 providers
+- **🎯 Auto Model**: Best stable model auto-selected per provider
+- **🔍 Smart Detection**: NL vs command detection with heuristics
+- **📜 History**: Built-in `history` command shows past translations
+- **🖥️ Cross-Platform**: Windows (PowerShell/CMD), macOS, Linux
+
+## Supported Providers
+
+| Provider | Free Tier | Model (Auto-Selected) |
+|----------|-----------|----------------------|
+| **Google Gemini** | ✅ Free | gemini-2.0-flash |
+| **Groq** | ✅ Free | llama-3.3-70b-versatile |
+| **OpenAI** | ❌ Paid | gpt-4o-mini |
+| **Anthropic** | ❌ Paid | claude-3-5-sonnet |
+| **Ollama** | ✅ Local | llama3.2 (no key needed) |
 
 ## Keyboard Shortcuts
 
 | Shortcut | Action |
-|---|---|
-| `Ctrl+Shift+I` | Open translation input box |
+|----------|--------|
+| `Ctrl+Shift+I` | Open AI Terminal |
 
-## Supported Providers
+## Built-in Terminal Commands
 
-| Provider | Models | Free Tier |
-|---|---|---|
-| OpenAI | GPT-4o, GPT-4o-mini | ❌ |
-| Google Gemini | Gemini 2.0 Flash | ✅ |
-| Anthropic | Claude 3.5 Sonnet | ❌ |
-| Groq | Llama 3.3 70B | ✅ |
-| Ollama | Any local model | ✅ (local) |
+| Command | Action |
+|---------|--------|
+| `help` | Show usage guide |
+| `history` | Show translation history |
+| `clear` | Clear screen |
+| `exit` | Close terminal |
+| `Ctrl+C` | Cancel current operation |
 
-## Installation
+## Supported Technologies
 
-### From VSIX file
+Git, Docker, Python, Node.js, Java, C/C++, Rust, Go, SQL, MongoDB, Kubernetes, Helm, Terraform, Ansible, Streamlit, Django, Flask, FastAPI, AWS CLI, Azure CLI, GCloud, curl, wget, ssh, file operations, package managers, and 50+ more.
+
+## Development
+
 ```bash
-code --install-extension ai-terminal-assistant-1.0.0.vsix
-```
-
-### From source
-```bash
-cd vscode-extension
-npm install
-# Press F5 in VS Code to run in development mode
+# Open vscode-extension/ folder in VS Code
+# Press F5 to launch Extension Development Host
 ```
 
 ## License
 
 MIT
+vsce package
+npm install -g @vscode/vsce
