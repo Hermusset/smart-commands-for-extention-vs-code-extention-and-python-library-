@@ -16,12 +16,14 @@ const SYSTEM_PROMPT = `You are a terminal command translator. Convert natural En
 STRICT RULES:
 1. Return ONLY valid JSON — no markdown, no code fences, no extra text.
 2. Use the OS/shell info provided. Generate platform-specific syntax.
-3. The "command" field must contain ONLY the raw, executable command. No placeholders, no comments, no alternatives.
+3. The "command" field must contain ONLY the raw, executable command. No placeholders, no comments.
 4. The "explanation" field must be ONE short sentence — what the command does. No tips, no suggestions, no follow-ups.
-5. The "warning" field: set ONLY for destructive commands (rm -rf, DROP TABLE, format, etc.). Otherwise null. Keep it to one sentence max.
-6. Do NOT add extra fields, suggestions, alternatives, or conversational filler.
-7. If the input IS already a valid command, return it as-is.
-8. For ambiguous requests, pick the single most likely command. Never list options.
+5. The "warning" field: set ONLY for destructive commands (rm -rf, DROP TABLE, format, etc.). Otherwise null. One sentence max.
+6. If the input IS already a valid command, return it as-is with explanation.
+7. Understand the user's INTENT from context — the working directory, OS, and shell. Infer what they actually need.
+8. If the intent is UNCLEAR or too vague, return the "command" field with the 2-3 most relevant commands separated by " || " and set "explanation" to briefly describe each. Example: "git status || git log --oneline -5 || git diff".
+9. Do NOT add conversational filler, extra fields, or unrelated suggestions.
+10. Always prefer the simplest, most common form of a command.
 
 RESPONSE FORMAT (strict JSON, nothing else):
 {
@@ -85,20 +87,23 @@ class AIService {
     /**
      * Translate natural language to a terminal command.
      * Provider + model are auto-resolved from config.
+     * @param {string} naturalLanguage
+     * @param {import('vscode').CancellationToken} [cancellationToken]
+     * @param {string} [cwd] - optional override for working directory
      */
-    async translateToCommand(naturalLanguage, cancellationToken) {
+    async translateToCommand(naturalLanguage, cancellationToken, cwd) {
         const provider = this.getProvider();
         const model = this.getModel(provider);
         const shell = this.detectShell();
         const platform = process.platform === 'win32' ? 'Windows'
             : process.platform === 'darwin' ? 'macOS' : 'Linux';
 
-        const cwd = vscode.workspace.workspaceFolders?.[0]?.uri?.fsPath || process.cwd();
+        const workDir = cwd || vscode.workspace.workspaceFolders?.[0]?.uri?.fsPath || process.cwd();
 
         const userMessage = [
             `OS: ${platform}`,
             `Shell: ${shell}`,
-            `Working Directory: ${cwd}`,
+            `Working Directory: ${workDir}`,
             ``,
             `Translate this to a terminal command: "${naturalLanguage}"`,
         ].join('\n');
@@ -117,6 +122,54 @@ class AIService {
             default:
                 throw new Error(`Unknown provider: ${provider}. Go to Settings to choose a valid provider.`);
         }
+    }
+
+    /**
+     * Get 2-3 alternative commands for the same intent.
+     * Called when user rejects the first suggestion.
+     */
+    async translateAlternatives(naturalLanguage, rejectedCommand, cancellationToken, cwd) {
+        const provider = this.getProvider();
+        const model = this.getModel(provider);
+        const shell = this.detectShell();
+        const platform = process.platform === 'win32' ? 'Windows'
+            : process.platform === 'darwin' ? 'macOS' : 'Linux';
+
+        const workDir = cwd || vscode.workspace.workspaceFolders?.[0]?.uri?.fsPath || process.cwd();
+
+        const userMessage = [
+            `OS: ${platform}`,
+            `Shell: ${shell}`,
+            `Working Directory: ${workDir}`,
+            ``,
+            `The user asked: "${naturalLanguage}"`,
+            `I suggested: "${rejectedCommand}" but they rejected it.`,
+            ``,
+            `Give me 3 alternative commands that might match their intent.`,
+            `Return JSON with field "alternatives" as an array of objects, each with "command" and "explanation".`,
+            `Example: {"alternatives": [{"command": "...", "explanation": "..."}, ...]}`,
+        ].join('\n');
+
+        // Reuse the same provider calls — the response will be parsed differently
+        let result;
+        switch (provider) {
+            case 'openai':
+                result = await this._callOpenAI(model, userMessage, cancellationToken); break;
+            case 'gemini':
+                result = await this._callGemini(model, userMessage, cancellationToken); break;
+            case 'anthropic':
+                result = await this._callAnthropic(model, userMessage, cancellationToken); break;
+            case 'groq':
+                result = await this._callGroq(model, userMessage, cancellationToken); break;
+            case 'ollama':
+                result = await this._callOllama(model, userMessage, cancellationToken); break;
+            default:
+                throw new Error(`Unknown provider: ${provider}.`);
+        }
+        // The _parseResponse returns {command, explanation}, but the raw response
+        // may contain alternatives. We handle this by checking.
+        // Since the prompt asks for "alternatives" array, we parse it from the command field.
+        return this._parseAlternativesResult(result);
     }
 
     // ────────── Provider API Calls ──────────
@@ -275,10 +328,22 @@ class AIService {
         try {
             const jsonMatch = content.match(/\{[\s\S]*\}/);
             const parsed = JSON.parse(jsonMatch ? jsonMatch[0] : content);
+
+            // If the AI returned an "alternatives" array, handle it
+            if (parsed.alternatives && Array.isArray(parsed.alternatives)) {
+                return {
+                    command: parsed.alternatives[0]?.command || '',
+                    explanation: parsed.alternatives[0]?.explanation || '',
+                    warning: null,
+                    _raw: parsed,
+                };
+            }
+
             return {
                 command: parsed.command || '',
                 explanation: parsed.explanation || '',
                 warning: parsed.warning || null,
+                _raw: parsed,
             };
         } catch {
             const lines = content.trim().split('\n');
@@ -286,8 +351,24 @@ class AIService {
                 command: lines[0].replace(/^[`$#>\s]+/, '').trim(),
                 explanation: lines.slice(1).join(' ').trim() || 'Generated command',
                 warning: null,
+                _raw: null,
             };
         }
+    }
+
+    _parseAlternativesResult(result) {
+        // If _raw has an alternatives array, return it directly
+        if (result._raw && result._raw.alternatives && Array.isArray(result._raw.alternatives)) {
+            return result._raw.alternatives.map(a => ({
+                command: a.command || '',
+                explanation: a.explanation || '',
+            })).filter(a => a.command);
+        }
+        // Fallback: return the single command as an alternative
+        if (result.command) {
+            return [{ command: result.command, explanation: result.explanation || '' }];
+        }
+        return [];
     }
 
     _httpsRequest(options, body, ct) {

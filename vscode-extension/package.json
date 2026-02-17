@@ -2,7 +2,7 @@
   "name": "ai-terminal-assistant",
   "displayName": "AI Terminal Assistant",
   "description": "Type plain English in terminal → get real commands. Powered by AI. BYOK - Bring Your Own Key.",
-  "version": "2.0.0",
+  "version": "2.0.3",
   "publisher": "ShoyebChaudhari",
   "engines": {
     "vscode": "^1.85.0"

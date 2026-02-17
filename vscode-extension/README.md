@@ -54,7 +54,7 @@ The terminal auto-detects which is which — no special syntax needed.
 
 | Provider | Free Tier | Model (Auto-Selected) |
 |----------|-----------|----------------------|
-| **Google Gemini** | ✅ Free | gemini-2.0-flash |
+| **Google Gemini** | ✅ Free | gemini-2.5-flash |
 | **Groq** | ✅ Free | llama-3.3-70b-versatile |
 | **OpenAI** | ❌ Paid | gpt-4o-mini |
 | **Anthropic** | ❌ Paid | claude-3-5-sonnet |

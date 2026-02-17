@@ -1,10 +1,12 @@
 const vscode = require('vscode');
-const { spawn } = require('child_process');
+const { spawn, execSync } = require('child_process');
+const path = require('path');
+const fs = require('fs');
 
 /**
  * Custom pseudo-terminal that acts as a smart AI-powered shell.
  *
- * User types plain English → extension translates → executes the real command.
+ * User types plain English → extension translates → shows command → asks y/n → executes.
  * If the input already looks like a valid command, it's executed directly.
  */
 class AITerminalPty {
@@ -29,6 +31,15 @@ class AITerminalPty {
         this.busy = false;
         this.childProc = null;
         this.cols = 80;
+
+        // Tracked working directory (persists across commands)
+        this.cwd = vscode.workspace.workspaceFolders?.[0]?.uri?.fsPath || process.cwd();
+
+        // Confirmation state
+        this.awaitingConfirm = false;
+        this.pendingCommand = null;   // The command waiting for y/n
+        this.pendingInput = null;     // The original natural language input
+        this.pendingResult = null;    // The full AI result
     }
 
     // ───── Lifecycle ─────
@@ -36,6 +47,7 @@ class AITerminalPty {
     open(initialDimensions) {
         if (initialDimensions) this.cols = initialDimensions.columns;
         this._banner();
+        this._showFolderStructure();
         this._prompt();
     }
 
@@ -57,6 +69,52 @@ class AITerminalPty {
                 return;
             }
             this.childProc.stdin.write(data);
+            return;
+        }
+
+        // ── Confirmation mode: waiting for y/n ──
+        if (this.awaitingConfirm) {
+            const ch = data.toLowerCase();
+            if (ch === 'y') {
+                this._write('y\r\n\r\n');
+                this.awaitingConfirm = false;
+                const cmd = this.pendingCommand;
+                const input = this.pendingInput;
+                const result = this.pendingResult;
+                this.pendingCommand = null;
+                this.pendingInput = null;
+                this.pendingResult = null;
+
+                // Save to history
+                const provider = this.aiService.getProvider();
+                this.historyManager.addEntry({
+                    input,
+                    command: cmd,
+                    explanation: result?.explanation || '',
+                    provider,
+                    timestamp: new Date().toLocaleString(),
+                });
+
+                this._executeCommand(cmd);
+            } else if (ch === 'n') {
+                this._write('n\r\n\r\n');
+                this.awaitingConfirm = false;
+                const originalInput = this.pendingInput;
+                const rejectedCmd = this.pendingCommand;
+                this.pendingCommand = null;
+                this.pendingInput = null;
+                this.pendingResult = null;
+
+                this._showAlternatives(originalInput, rejectedCmd);
+            } else if (data === '\x03') {
+                this._write('^C\r\n');
+                this.awaitingConfirm = false;
+                this.pendingCommand = null;
+                this.pendingInput = null;
+                this.pendingResult = null;
+                this._prompt();
+            }
+            // Ignore all other keys during confirmation
             return;
         }
 
@@ -162,12 +220,67 @@ class AITerminalPty {
             return;
         }
 
+        // Handle cd command directly (changes internal cwd)
+        const cdMatch = input.match(/^cd\s+(.+)$/i);
+        if (cdMatch) {
+            this._handleCd(cdMatch[1].trim());
+            return;
+        }
+        if (lower === 'cd') {
+            // cd with no args → go to workspace root
+            this.cwd = vscode.workspace.workspaceFolders?.[0]?.uri?.fsPath || process.cwd();
+            this._write(`\x1b[90m${this.cwd}\x1b[0m\r\n`);
+            this._prompt();
+            return;
+        }
+
+        // pwd support
+        if (lower === 'pwd') {
+            this._write(`${this.cwd}\r\n`);
+            this._prompt();
+            return;
+        }
+
         // Determine: natural language or direct command?
         if (this._isNaturalLanguage(input)) {
-            await this._translateAndExecute(input);
+            await this._translateAndConfirm(input);
         } else {
             await this._executeCommand(input);
         }
+    }
+
+    /**
+     * Handle cd command — update internal cwd
+     */
+    _handleCd(target) {
+        try {
+            let newPath;
+            if (target === '~' || target === '%USERPROFILE%') {
+                newPath = process.env.HOME || process.env.USERPROFILE || this.cwd;
+            } else if (target === '-') {
+                newPath = this._prevCwd || this.cwd;
+            } else if (target === '..') {
+                newPath = path.dirname(this.cwd);
+            } else if (path.isAbsolute(target)) {
+                newPath = target;
+            } else {
+                newPath = path.resolve(this.cwd, target);
+            }
+
+            // Verify directory exists
+            if (!fs.existsSync(newPath) || !fs.statSync(newPath).isDirectory()) {
+                this._write(`\x1b[31mcd: no such directory: ${target}\x1b[0m\r\n`);
+                this._prompt();
+                return;
+            }
+
+            this._prevCwd = this.cwd;
+            this.cwd = newPath;
+            this._write(`\x1b[90m${this.cwd}\x1b[0m\r\n`);
+        } catch (err) {
+            this._write(`\x1b[31mcd: ${err.message}\x1b[0m\r\n`);
+        }
+        this._prompt();
     }
 
     /**
@@ -177,7 +290,7 @@ class AITerminalPty {
         const trimmed = input.trim();
 
         // Known command prefixes → direct command
-        const cmdPrefixes = /^(git|docker|docker-compose|npm|npx|yarn|pnpm|pip|pip3|python|python3|node|cargo|go|rustc|kubectl|helm|terraform|ansible|ansible-playbook|aws|az|gcloud|curl|wget|ssh|scp|rsync|ping|tracert|traceroute|nslookup|ls|ll|la|dir|cd|pwd|mkdir|rmdir|rm|del|cp|copy|mv|move|cat|type|more|less|head|tail|echo|printf|grep|findstr|find|sed|awk|sort|wc|chmod|chown|chgrp|kill|pkill|ps|top|htop|df|du|tar|zip|unzip|gzip|gunzip|make|cmake|gcc|g\+\+|clang|javac|java|mvn|gradle|dotnet|mongosh|mongo|mysql|psql|sqlite3|redis-cli|streamlit|flask|uvicorn|gunicorn|nginx|systemctl|service|apt|apt-get|brew|choco|winget|snap|yum|dnf|pacman|code|vim|nano|emacs|nvim|powershell|pwsh|cmd|bash|zsh|sh|sudo|su|whoami|hostname|uname|env|set|export|source|which|where|man|info|ping|netstat|ifconfig|ipconfig|nmap|nc|openssl|certbot)\b/i;
+        const cmdPrefixes = /^(git|docker|docker-compose|npm|npx|yarn|pnpm|pip|pip3|python|python3|node|cargo|go|rustc|kubectl|helm|terraform|ansible|ansible-playbook|aws|az|gcloud|curl|wget|ssh|scp|rsync|ping|tracert|traceroute|nslookup|ls|ll|la|dir|cd|pwd|mkdir|rmdir|rm|del|cp|copy|mv|move|cat|type|more|less|head|tail|echo|printf|grep|findstr|find|sed|awk|sort|wc|chmod|chown|chgrp|kill|pkill|ps|top|htop|df|du|tar|zip|unzip|gzip|gunzip|make|cmake|gcc|g\+\+|clang|javac|java|mvn|gradle|dotnet|mongosh|mongo|mysql|psql|sqlite3|redis-cli|streamlit|flask|uvicorn|gunicorn|nginx|systemctl|service|apt|apt-get|brew|choco|winget|snap|yum|dnf|pacman|code|vim|nano|emacs|nvim|powershell|pwsh|cmd|bash|zsh|sh|sudo|su|whoami|hostname|uname|env|set|export|source|which|where|man|info|ping|netstat|ifconfig|ipconfig|nmap|nc|openssl|certbot)(\s|$)/i;
 
         if (cmdPrefixes.test(trimmed)) return false;
         if (/^[.\/~\\]/.test(trimmed)) return false; // Starts with path
@@ -192,7 +305,6 @@ class AITerminalPty {
 
         // Single word that's not a known command → probably NL
         if (words.length === 1 && !cmdPrefixes.test(trimmed)) {
-            // Could be a typo or short NL. Treat as NL if it's a common English word
             const commonWords = ['create', 'make', 'build', 'run', 'start', 'stop', 'install', 'remove',
                 'delete', 'show', 'list', 'find', 'search', 'update', 'upgrade', 'deploy', 'push',
                 'pull', 'commit', 'merge', 'rebase', 'checkout', 'switch', 'connect', 'compile',
@@ -203,14 +315,14 @@ class AITerminalPty {
         return words.length >= 3;
     }
 
-    // ───── Translate + Execute ─────
+    // ───── Translate + Confirm ─────
 
-    async _translateAndExecute(input) {
+    async _translateAndConfirm(input) {
         this.busy = true;
         this._write('\x1b[90m   Translating...\x1b[0m\r\n');
 
         try {
-            const result = await this.aiService.translateToCommand(input);
+            const result = await this.aiService.translateToCommand(input, undefined, this.cwd);
 
             if (!result || !result.command) {
                 this._write('\x1b[31m   Could not translate. Try rephrasing.\x1b[0m\r\n\r\n');
@@ -219,33 +331,65 @@ class AITerminalPty {
                 return;
             }
 
+            // Clean the command — strip any JSON artifacts or code fences
+            const cleanCmd = this._cleanCommand(result.command);
+            const cleanExplanation = this._cleanText(result.explanation);
+
             // Show the translated command
-            this._write(`\r\n\x1b[1;32m   \u2713\x1b[0m \x1b[1;97m${result.command}\x1b[0m\r\n`);
-            this._write(`\x1b[90m     ${result.explanation}\x1b[0m\r\n`);
+            this._write(`\r\n\x1b[1;32m   \u2713\x1b[0m \x1b[1;97m${cleanCmd}\x1b[0m\r\n`);
+            this._write(`\x1b[90m     ${cleanExplanation}\x1b[0m\r\n`);
             if (result.warning) {
-                this._write(`\x1b[1;33m     ! ${result.warning}\x1b[0m\r\n`);
+                this._write(`\x1b[1;33m     \u26a0 ${this._cleanText(result.warning)}\x1b[0m\r\n`);
             }
             this._write('\r\n');
 
-            // Save to history
-            const provider = this.aiService.getProvider();
-            this.historyManager.addEntry({
-                input,
-                command: result.command,
-                explanation: result.explanation,
-                provider,
-                timestamp: new Date().toLocaleString(),
-            });
-
-            // Execute the translated command
+            // Ask for confirmation
+            this.pendingCommand = cleanCmd;
+            this.pendingInput = input;
+            this.pendingResult = result;
+            this.awaitingConfirm = true;
             this.busy = false;
-            await this._executeCommand(result.command);
+
+            this._write('\x1b[1;33m   Execute? (y/n): \x1b[0m');
 
         } catch (err) {
             this._write(`\x1b[1;31m   Error: ${err.message}\x1b[0m\r\n\r\n`);
             this.busy = false;
             this._prompt();
         }
+    }
+
+    // ───── Show Alternatives ─────
+
+    async _showAlternatives(originalInput, rejectedCommand) {
+        this.busy = true;
+        this._write('\x1b[90m   Finding alternatives...\x1b[0m\r\n\r\n');
+
+        try {
+            const alternatives = await this.aiService.translateAlternatives(
+                originalInput, rejectedCommand, undefined, this.cwd
+            );
+
+            if (!alternatives || alternatives.length === 0) {
+                this._write('\x1b[33m   No alternatives found. Try rephrasing.\x1b[0m\r\n\r\n');
+                this.busy = false;
+                this._prompt();
+                return;
+            }
+
+            this._write('\x1b[1;97m   Similar commands:\x1b[0m\r\n\r\n');
+            alternatives.forEach((alt, i) => {
+                const cmd = this._cleanCommand(alt.command);
+                const exp = this._cleanText(alt.explanation);
+                this._write(`   \x1b[1;36m${i + 1}.\x1b[0m \x1b[1;97m${cmd}\x1b[0m\r\n`);
+                this._write(`      \x1b[90m${exp}\x1b[0m\r\n\r\n`);
+            });
+        } catch (err) {
+            this._write(`\x1b[31m   Could not find alternatives: ${err.message}\x1b[0m\r\n\r\n`);
+        }
+
+        this.busy = false;
+        this._prompt();
     }
 
     // ───── Command Execution ─────
@@ -256,12 +400,10 @@ class AITerminalPty {
             ? ['-NoProfile', '-NoLogo', '-Command', command]
             : ['-c', command];
 
-        const cwd = vscode.workspace.workspaceFolders?.[0]?.uri?.fsPath || process.cwd();
-
         return new Promise((resolve) => {
             try {
                 this.childProc = spawn(shell, args, {
-                    cwd,
+                    cwd: this.cwd,
                     env: { ...process.env },
                 });
 
@@ -308,21 +450,57 @@ class AITerminalPty {
         this.busy = false;
         const provider = this.aiService.getProvider();
         const tag = provider.charAt(0).toUpperCase() + provider.slice(1);
-        this._write(`\x1b[1;35m[${tag}]\x1b[0m \x1b[1;36m>\x1b[0m `);
+        // Show short cwd (folder name only)
+        const folder = path.basename(this.cwd);
+        this._write(`\x1b[1;35m[${tag}]\x1b[0m \x1b[90m${folder}\x1b[0m \x1b[1;36m>\x1b[0m `);
     }
 
     _refreshLine() {
         // Redraw from prompt
         const provider = this.aiService.getProvider();
         const tag = provider.charAt(0).toUpperCase() + provider.slice(1);
-        const promptLen = tag.length + 4; // [Tag] >_
+        const folder = path.basename(this.cwd);
 
-        this._write(`\r\x1b[1;35m[${tag}]\x1b[0m \x1b[1;36m>\x1b[0m ${this.line}\x1b[K`);
+        this._write(`\r\x1b[1;35m[${tag}]\x1b[0m \x1b[90m${folder}\x1b[0m \x1b[1;36m>\x1b[0m ${this.line}\x1b[K`);
         // Position cursor
         const backMoves = this.line.length - this.cursorPos;
         if (backMoves > 0) {
             this._write(`\x1b[${backMoves}D`);
         }
+    }
+
+    /**
+     * Clean command string — remove JSON artifacts, code fences, quotes wrapping
+     */
+    _cleanCommand(cmd) {
+        if (!cmd) return '';
+        let cleaned = cmd.trim();
+        // Remove code fence wrappers
+        cleaned = cleaned.replace(/^```[\w]*\n?/, '').replace(/\n?```$/, '');
+        // Remove surrounding quotes
+        cleaned = cleaned.replace(/^["'](.+)["']$/, '$1');
+        // Remove leading $ or > prompt chars
+        cleaned = cleaned.replace(/^[$>]\s*/, '');
+        return cleaned.trim();
+    }
+
+    /**
+     * Clean text — remove JSON artifacts, ensure no raw JSON is shown
+     */
+    _cleanText(text) {
+        if (!text) return '';
+        let cleaned = text.trim();
+        // If it looks like raw JSON, extract meaningful parts
+        try {
+            if (cleaned.startsWith('{') || cleaned.startsWith('[')) {
+                const parsed = JSON.parse(cleaned);
+                if (typeof parsed === 'string') return parsed;
+                if (parsed.explanation) return parsed.explanation;
+                if (parsed.command) return `Command: ${parsed.command}`;
+                return cleaned;
+            }
+        } catch { }
+        return cleaned;
     }
 
     _historyUp() {
@@ -356,19 +534,61 @@ class AITerminalPty {
     }
 
     _banner() {
+        const provider = this.aiService.getProvider();
+        const model = this.aiService.getModel(provider);
+        const providerName = provider.charAt(0).toUpperCase() + provider.slice(1);
+
         const lines = [
             '',
-            '\x1b[1;36m  ╔═══════════════════════════════════════════╗\x1b[0m',
-            '\x1b[1;36m  ║\x1b[0m  \x1b[1;97mAI Terminal Assistant v2.0\x1b[0m               \x1b[1;36m║\x1b[0m',
-            '\x1b[1;36m  ║\x1b[0m  \x1b[90mType English \x1b[33m>\x1b[90m Get Commands \x1b[33m>\x1b[90m Auto-Run\x1b[0m   \x1b[1;36m║\x1b[0m',
-            '\x1b[1;36m  ╚═══════════════════════════════════════════╝\x1b[0m',
+            '\x1b[1;36m  \u2554\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2557\x1b[0m',
+            '\x1b[1;36m  \u2551\x1b[0m  \x1b[1;97mAI Terminal Assistant v2.0\x1b[0m               \x1b[1;36m\u2551\x1b[0m',
+            '\x1b[1;36m  \u2551\x1b[0m  \x1b[90mType English \x1b[33m>\x1b[90m Confirm \x1b[33m>\x1b[90m Execute\x1b[0m       \x1b[1;36m\u2551\x1b[0m',
+            `\x1b[1;36m  \u2551\x1b[0m  \x1b[90mModel: \x1b[1;33m${model}\x1b[0m${' '.repeat(Math.max(0, 29 - model.length))}\x1b[1;36m\u2551\x1b[0m`,
+            '\x1b[1;36m  \u255a\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255d\x1b[0m',
             '',
-            '\x1b[90m  Type in plain English and commands are auto-detected.\x1b[0m',
-            '\x1b[90m  Real commands (git, docker, etc.) run directly.\x1b[0m',
+            '\x1b[90m  Commands are confirmed before execution (y/n).\x1b[0m',
             '\x1b[90m  Type \x1b[97mhelp\x1b[90m for more info.\x1b[0m',
             '',
         ];
         this._write(lines.join('\r\n'));
+    }
+
+    _showFolderStructure() {
+        try {
+            const entries = fs.readdirSync(this.cwd, { withFileTypes: true });
+            if (entries.length === 0) {
+                this._write('\x1b[90m  (empty directory)\x1b[0m\r\n\r\n');
+                return;
+            }
+
+            this._write(`\x1b[1;97m  \ud83d\udcc2 ${path.basename(this.cwd)}\x1b[0m\r\n`);
+
+            // Sort: directories first, then files
+            const dirs = entries.filter(e => e.isDirectory() && !e.name.startsWith('.')).sort((a, b) => a.name.localeCompare(b.name));
+            const files = entries.filter(e => e.isFile() && !e.name.startsWith('.')).sort((a, b) => a.name.localeCompare(b.name));
+
+            const maxItems = 20; // Limit display
+            let count = 0;
+
+            for (const d of dirs) {
+                if (count >= maxItems) break;
+                this._write(`\x1b[34m  \u251c\u2500 \ud83d\udcc1 ${d.name}/\x1b[0m\r\n`);
+                count++;
+            }
+            for (const f of files) {
+                if (count >= maxItems) break;
+                this._write(`\x1b[90m  \u251c\u2500 ${f.name}\x1b[0m\r\n`);
+                count++;
+            }
+
+            const remaining = (dirs.length + files.length) - count;
+            if (remaining > 0) {
+                this._write(`\x1b[90m  \u2514\u2500 ...and ${remaining} more\x1b[0m\r\n`);
+            }
+            this._write('\r\n');
+        } catch {
+            // If we can't read the directory, just skip
+        }
     }
 
     _showHelp() {
@@ -376,11 +596,14 @@ class AITerminalPty {
             '',
             '\x1b[1;97m  HOW IT WORKS\x1b[0m',
             '',
-            '   \x1b[36m1.\x1b[0m Type in \x1b[1mplain English\x1b[0m \x1b[90m(auto-translated & executed)\x1b[0m',
+            '   \x1b[36m1.\x1b[0m Type in \x1b[1mplain English\x1b[0m \x1b[90m(translated \u2192 confirm y/n \u2192 execute)\x1b[0m',
             '   \x1b[36m2.\x1b[0m Type \x1b[1mreal commands\x1b[0m    \x1b[90m(executed directly)\x1b[0m',
+            '   \x1b[36m3.\x1b[0m Type \x1b[1mn\x1b[0m on confirm    \x1b[90m(shows alternative commands)\x1b[0m',
             '',
             '\x1b[1;97m  BUILT-IN COMMANDS\x1b[0m',
             '',
+            '   \x1b[33mcd <path>\x1b[0m  Change directory',
+            '   \x1b[33mpwd\x1b[0m       Print working directory',
             '   \x1b[33mclear\x1b[0m     Clear screen',
             '   \x1b[33mhistory\x1b[0m   Show translation history',
             '   \x1b[33mhelp\x1b[0m      Show this help',

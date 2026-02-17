@@ -51,6 +51,10 @@ class SidebarProvider {
                     vscode.commands.executeCommand('aiTerminal.openSmartTerminal');
                     break;
                 }
+                case 'openExternal': {
+                    vscode.env.openExternal(vscode.Uri.parse(msg.url));
+                    break;
+                }
                 case 'getState': {
                     await this._sendState();
                     break;
@@ -360,6 +364,21 @@ class SidebarProvider {
         font-family: 'Inter', sans-serif;
     }
 
+    .key-help-link {
+        display: block;
+        margin-top: 8px;
+        font-size: 11px;
+        color: var(--accent-blue);
+        text-decoration: none;
+        cursor: pointer;
+        transition: color 0.2s;
+    }
+
+    .key-help-link:hover {
+        color: var(--accent-purple);
+        text-decoration: underline;
+    }
+
     /* ═══ Buttons ═══ */
     .btn {
         display: inline-flex;
@@ -590,7 +609,7 @@ class SidebarProvider {
                 <div class="provider-card" data-provider="gemini">
                     <span class="provider-icon">&#128142;</span>
                     <div class="provider-name">Gemini</div>
-                    <div class="provider-model">gemini-2.0-flash</div>
+                    <div class="provider-model">gemini-2.5-flash</div>
                     <span class="check">&#10003;</span>
                 </div>
                 <div class="provider-card" data-provider="groq">
@@ -623,6 +642,7 @@ class SidebarProvider {
                         placeholder="Paste your API key here..." />
                     <button class="btn btn-save" id="saveKeyBtn">Save</button>
                 </div>
+                <a class="key-help-link" id="getKeyLink">&#128279; Get your Gemini API key here</a>
             </div>
             <div style="display:flex;justify-content:flex-end;">
                 <button class="btn btn-danger-sm" id="deleteKeyBtn">Remove Key</button>
@@ -693,6 +713,21 @@ class SidebarProvider {
             }
         });
 
+        // API key help link
+        const keyLinks = {
+            openai: { text: 'Get your OpenAI API key here', url: 'https://platform.openai.com/api-keys' },
+            gemini: { text: 'Get your Gemini API key here', url: 'https://aistudio.google.com/apikey' },
+            anthropic: { text: 'Get your Anthropic API key here', url: 'https://console.anthropic.com/settings/keys' },
+            groq: { text: 'Get your Groq API key here', url: 'https://console.groq.com/keys' },
+        };
+
+        document.getElementById('getKeyLink').addEventListener('click', () => {
+            const link = keyLinks[currentProvider];
+            if (link) {
+                vscode.postMessage({ type: 'openExternal', url: link.url });
+            }
+        });
+
         // ── Handle messages from extension ──
         window.addEventListener('message', (event) => {
             const msg = event.data;
@@ -720,6 +755,13 @@ class SidebarProvider {
                     text.textContent = 'API key needed';
                 }
                 model.textContent = msg.model || '';
+
+                // Update API key help link
+                const getKeyLink = document.getElementById('getKeyLink');
+                const linkInfo = keyLinks[msg.provider];
+                if (linkInfo) {
+                    getKeyLink.textContent = '\ud83d\udd17 ' + linkInfo.text;
+                }
 
                 // Show/hide API key section for Ollama
                 const isOllama = msg.provider === 'ollama';
