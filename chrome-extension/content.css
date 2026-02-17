@@ -1,0 +1,178 @@
+/* AI Terminal Assistant - Content Script Styles */
+
+#ai-terminal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    z-index: 2147483647;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+#ai-terminal-overlay .ai-term-backdrop {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(4px);
+    animation: ai-term-fadeIn 0.2s ease;
+}
+
+@keyframes ai-term-fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+#ai-terminal-overlay .ai-term-modal {
+    position: absolute;
+    top: 20%;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 520px;
+    max-width: 90vw;
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 14px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5), 0 0 40px rgba(88,166,255,0.1);
+    overflow: hidden;
+    animation: ai-term-slideDown 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes ai-term-slideDown {
+    from { opacity: 0; transform: translateX(-50%) translateY(-20px) scale(0.95); }
+    to { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+}
+
+#ai-terminal-overlay .ai-term-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 18px;
+    background: linear-gradient(135deg, #58a6ff, #bc8cff);
+}
+
+#ai-terminal-overlay .ai-term-logo {
+    font-size: 15px;
+    font-weight: 700;
+    color: white;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.2);
+}
+
+#ai-terminal-overlay .ai-term-close {
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    border: none;
+    background: rgba(255,255,255,0.2);
+    color: white;
+    font-size: 14px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.2s;
+}
+
+#ai-terminal-overlay .ai-term-close:hover {
+    background: rgba(255,255,255,0.3);
+}
+
+#ai-terminal-overlay .ai-term-body {
+    padding: 18px;
+}
+
+#ai-terminal-overlay .ai-term-input {
+    width: 100%;
+    padding: 12px 16px;
+    background: #21262d;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    color: #e6edf3;
+    font-size: 14px;
+    font-family: inherit;
+    outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+#ai-terminal-overlay .ai-term-input:focus {
+    border-color: #58a6ff;
+    box-shadow: 0 0 0 3px rgba(88,166,255,0.15);
+}
+
+#ai-terminal-overlay .ai-term-loader {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 16px 0;
+    color: #8b949e;
+    font-size: 13px;
+}
+
+#ai-terminal-overlay .ai-term-spinner {
+    width: 20px;
+    height: 20px;
+    border: 2px solid #30363d;
+    border-top-color: #58a6ff;
+    border-radius: 50%;
+    animation: ai-term-spin 0.7s linear infinite;
+}
+
+@keyframes ai-term-spin {
+    to { transform: rotate(360deg); }
+}
+
+#ai-terminal-overlay .ai-term-result-card {
+    margin-top: 14px;
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 10px;
+    overflow: hidden;
+    animation: ai-term-fadeIn 0.3s ease;
+}
+
+#ai-terminal-overlay .ai-term-cmd {
+    padding: 14px 16px;
+    font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+    font-size: 14px;
+    color: #56d4dd;
+    background: rgba(86,212,221,0.05);
+    word-break: break-all;
+}
+
+#ai-terminal-overlay .ai-term-explain {
+    padding: 10px 16px;
+    font-size: 12.5px;
+    color: #8b949e;
+    border-top: 1px solid #30363d;
+}
+
+#ai-terminal-overlay .ai-term-copy-btn {
+    display: block;
+    width: 100%;
+    padding: 10px;
+    background: linear-gradient(135deg, #3fb950, #56d4dd);
+    color: white;
+    border: none;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.2s;
+    font-family: inherit;
+}
+
+#ai-terminal-overlay .ai-term-copy-btn:hover {
+    opacity: 0.9;
+}
+
+#ai-terminal-overlay .ai-term-error {
+    margin-top: 14px;
+    padding: 12px 16px;
+    background: rgba(248,81,73,0.1);
+    border: 1px solid rgba(248,81,73,0.3);
+    border-radius: 8px;
+    color: #f85149;
+    font-size: 13px;
+}

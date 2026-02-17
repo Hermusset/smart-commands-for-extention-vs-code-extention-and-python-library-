@@ -1,0 +1,55 @@
+{
+    "manifest_version": 3,
+    "name": "AI Terminal Assistant",
+    "version": "1.0.0",
+    "description": "Convert natural English to terminal commands using AI. Works with browser-based IDEs and terminals. BYOK - Bring Your Own API Key.",
+    "permissions": [
+        "storage",
+        "activeTab"
+    ],
+    "host_permissions": [
+        "https://api.openai.com/*",
+        "https://generativelanguage.googleapis.com/*",
+        "https://api.anthropic.com/*",
+        "https://api.groq.com/*",
+        "http://localhost:*/*"
+    ],
+    "action": {
+        "default_popup": "popup.html",
+        "default_icon": {
+            "16": "icons/icon16.png",
+            "48": "icons/icon48.png",
+            "128": "icons/icon128.png"
+        }
+    },
+    "icons": {
+        "16": "icons/icon16.png",
+        "48": "icons/icon48.png",
+        "128": "icons/icon128.png"
+    },
+    "background": {
+        "service_worker": "background.js"
+    },
+    "content_scripts": [
+        {
+            "matches": [
+                "<all_urls>"
+            ],
+            "js": [
+                "content.js"
+            ],
+            "css": [
+                "content.css"
+            ]
+        }
+    ],
+    "commands": {
+        "translate-command": {
+            "suggested_key": {
+                "default": "Ctrl+Shift+I",
+                "mac": "Command+Shift+I"
+            },
+            "description": "Open AI Terminal Assistant"
+        }
+    }
+}

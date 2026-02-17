@@ -1,0 +1,2 @@
+[console_scripts]
+ait = ai_terminal.cli:main

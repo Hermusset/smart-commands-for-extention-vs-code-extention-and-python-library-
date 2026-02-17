@@ -1,0 +1,174 @@
+# ⚡ AI Terminal Assistant - Python Library & CLI
+
+> Convert natural English to terminal commands using AI. BYOK - Bring Your Own API Key.
+
+## Installation
+
+```bash
+# From source (in the pylib directory)
+pip install -e .
+
+# Or install directly
+pip install .
+```
+
+## Quick Start
+
+### As a CLI Tool
+
+```bash
+# First, configure your API key
+ait config --provider gemini --api-key YOUR_GEMINI_KEY
+
+# Translate commands
+ait "create a new git branch called feature-login"
+ait "build docker image and run on port 3000"
+ait "install streamlit and run my dashboard"
+
+# Auto-run the generated command
+ait --run "show all docker containers"
+
+# Copy to clipboard
+ait --copy "compile main.cpp with g++"
+
+# Interactive mode (continuous session)
+ait --interactive
+
+# View history
+ait history
+ait history --search "git"
+ait history --clear
+
+# Show/change config
+ait config --show
+ait config --provider openai --api-key sk-...
+ait config --provider ollama --model llama3.2
+```
+
+### As a Python Library
+
+```python
+from ai_terminal import translate, translate_and_run, configure
+
+# Configure (only needed once, stored in ~/.ai-terminal/config.json)
+configure(provider="gemini", api_key="YOUR_KEY")
+
+# Simple translation
+result = translate("create a python virtual environment")
+print(result.command)       # python -m venv venv
+print(result.explanation)   # Creates a new virtual environment...
+
+# Translate and execute
+output = translate_and_run("show disk usage", confirm=False, capture_output=True)
+print(output['output'])
+
+# Using the class for more control
+from ai_terminal import AITerminal
+
+terminal = AITerminal(
+    provider="groq",
+    api_key="gsk_...",
+    model="llama-3.3-70b-versatile",
+)
+
+result = terminal.translate("find all python files modified today")
+print(result.command)
+```
+
+### Using with Ollama (Free, Local)
+
+```python
+from ai_terminal import AITerminal
+
+# No API key needed - runs locally!
+terminal = AITerminal(provider="ollama", model="llama3.2")
+result = terminal.translate("show git log with graph")
+print(result.command)  # git log --oneline --graph --all
+```
+
+```bash
+# CLI - Ollama setup
+ait config --provider ollama --model llama3.2
+ait "show git log with graph"
+```
+
+## Supported Technologies
+
+| Category | Technologies |
+|----------|-------------|
+| Version Control | Git, GitHub CLI |
+| Containers | Docker, Docker Compose, Podman |
+| Cloud | AWS CLI, Azure CLI, GCloud, Terraform |
+| Languages | Python, Node.js, Java, C/C++, Rust, Go |
+| Databases | MySQL, PostgreSQL, SQLite, MongoDB |
+| Orchestration | Kubernetes, Helm, Ansible |
+| Web Frameworks | Django, Flask, FastAPI, Streamlit, Next.js |
+| Package Managers | pip, npm, yarn, cargo, apt, brew, choco |
+| Network | curl, wget, ssh, scp, ping |
+| System | File ops, process management, disk usage |
+
+## Supported Providers
+
+| Provider | Free Tier | Speed | CLI Flag |
+|----------|-----------|-------|----------|
+| OpenAI | ❌ | Fast | `--provider openai` |
+| Google Gemini | ✅ | Fast | `--provider gemini` |
+| Groq | ✅ | Very Fast | `--provider groq` |
+| Anthropic | ❌ | Fast | `--provider anthropic` |
+| Ollama | ✅ Local | Varies | `--provider ollama` |
+
+## API Reference
+
+### `translate(text) → TranslationResult`
+```python
+result = translate("your natural language command")
+result.command       # str: The generated command
+result.explanation   # str: What the command does
+result.warning       # Optional[str]: Warning if destructive
+```
+
+### `translate_and_run(text, confirm=True, capture_output=False) → dict`
+```python
+output = translate_and_run("show files", confirm=False, capture_output=True)
+output['result']      # TranslationResult
+output['executed']    # bool
+output['output']      # str (if capture_output=True)
+output['returncode']  # int
+```
+
+### `configure(**kwargs) → dict`
+```python
+configure(provider="gemini", api_key="...", model="gemini-2.0-flash")
+```
+
+### `AITerminal` class
+```python
+terminal = AITerminal(
+    provider="openai",      # AI provider
+    api_key="sk-...",       # API key
+    model="gpt-4o-mini",   # Model name
+    shell="powershell",     # Target shell
+    save_history=True,      # Save to history
+)
+result = terminal.translate("...")
+output = terminal.translate_and_run("...", confirm=True)
+```
+
+## File Structure
+
+```
+pylib/
+├── pyproject.toml        # Package config & dependencies
+├── README.md             # This file
+└── ai_terminal/
+    ├── __init__.py       # Public API exports
+    ├── cli.py            # CLI with Rich terminal UI
+    ├── core.py           # AITerminal class & convenience functions
+    ├── providers.py      # Multi-provider AI integrations
+    ├── config.py         # Config management (~/.ai-terminal/)
+    └── history.py        # Command history persistence
+```
+
+## License
+
+MIT

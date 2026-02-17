@@ -1,0 +1,134 @@
+{
+  "name": "ai-terminal-assistant",
+  "displayName": "AI Terminal Assistant",
+  "description": "Convert natural English to terminal commands using AI. Supports Git, Docker, Python, SQL, MongoDB, and 50+ technologies. BYOK - Bring Your Own API Key.",
+  "version": "1.0.0",
+  "publisher": "shoyeb",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Other",
+    "Machine Learning"
+  ],
+  "keywords": [
+    "ai",
+    "terminal",
+    "commands",
+    "git",
+    "docker",
+    "python",
+    "sql",
+    "mongodb",
+    "natural language",
+    "BYOK"
+  ],
+  "icon": "media/icon.png",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./src/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "aiTerminal.translateCommand",
+        "title": "AI Terminal: Translate English to Command",
+        "icon": {
+          "light": "media/icon-light.svg",
+          "dark": "media/icon-dark.svg"
+        }
+      },
+      {
+        "command": "aiTerminal.openSettings",
+        "title": "AI Terminal: Open Settings Panel"
+      },
+      {
+        "command": "aiTerminal.showHistory",
+        "title": "AI Terminal: Show Command History"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "aiTerminal.translateCommand",
+        "key": "ctrl+shift+i",
+        "mac": "cmd+shift+i"
+      }
+    ],
+    "configuration": {
+      "title": "AI Terminal Assistant",
+      "properties": {
+        "aiTerminal.apiProvider": {
+          "type": "string",
+          "default": "openai",
+          "enum": [
+            "openai",
+            "gemini",
+            "anthropic",
+            "groq",
+            "ollama"
+          ],
+          "description": "AI provider to use for command translation"
+        },
+        "aiTerminal.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "Your API key (stored securely in VS Code secrets)"
+        },
+        "aiTerminal.model": {
+          "type": "string",
+          "default": "gpt-4o-mini",
+          "description": "Model to use for command translation"
+        },
+        "aiTerminal.autoExecute": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically execute generated commands (use with caution)"
+        },
+        "aiTerminal.shell": {
+          "type": "string",
+          "default": "auto",
+          "enum": [
+            "auto",
+            "powershell",
+            "cmd",
+            "bash",
+            "zsh"
+          ],
+          "description": "Target shell for command generation"
+        },
+        "aiTerminal.ollamaEndpoint": {
+          "type": "string",
+          "default": "http://localhost:11434",
+          "description": "Ollama API endpoint (for local models)"
+        }
+      }
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "aiTerminalSidebar",
+          "title": "AI Terminal Assistant",
+          "icon": "media/sidebar-icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "aiTerminalSidebar": [
+        {
+          "type": "webview",
+          "id": "aiTerminal.settingsView",
+          "name": "Settings & History"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "test": "node ./test/runTest.js"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.80.0",
+    "eslint": "^8.45.0"
+  },
+  "dependencies": {}
+}
