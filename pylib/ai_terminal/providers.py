@@ -34,6 +34,9 @@ RULES:
    - Network (curl, wget, ping, ssh, scp)
    - System (process management, disk usage, memory)
    - Package managers (apt, brew, choco, winget, pip)
+   - Machine Learning (nvidia-smi, jupyter, wandb, mlflow, huggingface-cli)
+   - PyTorch / TensorFlow (training scripts, CUDA device selection, model export)
+   - Experiment tracking (wandb, mlflow, tensorboard)
 4. If the command could be destructive (rm -rf, DROP TABLE, etc.), add a warning.
 5. ALWAYS prefer safe, commonly-used command patterns.
 6. For ambiguous requests, provide the most likely intended command.
