@@ -16,9 +16,11 @@ CONFIG_FILE = CONFIG_DIR / "config.json"
 HISTORY_FILE = CONFIG_DIR / "history.json"
 
 DEFAULT_CONFIG = {
-    "provider": "openai",
+    "provider": "ollama",
     "model": "",
     "shell": "auto",
+    "safe_mode": True,
+    "allow_remote_ollama_endpoint": False,
     "auto_execute": False,
     "ollama_endpoint": "http://localhost:11434",
     "api_keys": {},
@@ -83,6 +85,8 @@ def configure(
     api_key: Optional[str] = None,
     model: Optional[str] = None,
     shell: Optional[str] = None,
+    safe_mode: Optional[bool] = None,
+    allow_remote_ollama_endpoint: Optional[bool] = None,
     auto_execute: Optional[bool] = None,
     ollama_endpoint: Optional[str] = None,
 ) -> dict:
@@ -134,6 +138,12 @@ def configure(
     if auto_execute is not None:
         config["auto_execute"] = auto_execute
 
+    if safe_mode is not None:
+        config["safe_mode"] = bool(safe_mode)
+
+    if allow_remote_ollama_endpoint is not None:
+        config["allow_remote_ollama_endpoint"] = bool(allow_remote_ollama_endpoint)
+
     if ollama_endpoint is not None:
         config["ollama_endpoint"] = ollama_endpoint
 
@@ -150,7 +160,7 @@ def reset_config():
 def get_api_key(provider: Optional[str] = None) -> Optional[str]:
     """Get the API key for a specific provider."""
     config = _load_config()
-    p = provider or config.get("provider", "openai")
+    p = provider or config.get("provider", "ollama")
     return config.get("api_keys", {}).get(p)
 
 
@@ -160,7 +170,7 @@ def get_model(provider: Optional[str] = None) -> str:
     model = config.get("model", "")
     if model:
         return model
-    p = provider or config.get("provider", "openai")
+    p = provider or config.get("provider", "ollama")
     return DEFAULT_MODELS.get(p, "")
 
 

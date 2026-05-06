@@ -25,6 +25,15 @@ class SidebarProvider {
         webviewView.webview.onDidReceiveMessage(async (msg) => {
             switch (msg.type) {
                 case 'selectProvider': {
+                    const safeMode = vscode.workspace.getConfiguration('aiTerminal').get('safeMode', true);
+                    if (safeMode && msg.provider !== 'ollama') {
+                        this._postMessage({
+                            type: 'toast',
+                            text: 'Safe mode is enabled: only Ollama (local) is allowed. Disable aiTerminal.safeMode to use cloud providers.',
+                            variant: 'error',
+                        });
+                        return;
+                    }
                     await vscode.workspace.getConfiguration('aiTerminal')
                         .update('apiProvider', msg.provider, vscode.ConfigurationTarget.Global);
                     await this._sendState();
@@ -65,15 +74,19 @@ class SidebarProvider {
 
     async _sendState() {
         const config = vscode.workspace.getConfiguration('aiTerminal');
-        const provider = config.get('apiProvider', 'gemini');
+        const provider = this.aiService.getProvider();
         const hasKey = await this.aiService.hasApiKey(provider);
         const model = STABLE_MODELS[provider] || '';
+        const safeMode = config.get('safeMode', true);
+        const allowRemoteOllamaEndpoint = config.get('allowRemoteOllamaEndpoint', false);
 
         this._postMessage({
             type: 'state',
             provider,
             hasKey,
             model,
+            safeMode,
+            allowRemoteOllamaEndpoint,
         });
     }
 
@@ -91,8 +104,6 @@ class SidebarProvider {
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>AI Terminal Setup</title>
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
-
     :root {
         --bg-primary: #0d1117;
         --bg-secondary: #161b22;
@@ -119,7 +130,7 @@ class SidebarProvider {
     }
 
     body {
-        font-family: 'Inter', -apple-system, sans-serif;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
         background: var(--bg-primary);
         color: var(--text-primary);
         font-size: 13px;
@@ -576,6 +587,13 @@ class SidebarProvider {
     </div>
 
     <div class="content">
+        <div class="info-card" id="safeModeBanner" style="display:none; margin-bottom:14px;">
+            <h4>Safe mode (local-only)</h4>
+            <div class="info-item">
+                <span class="dot">•</span>
+                <span>Only Ollama is enabled, and non-local endpoints are blocked by default.</span>
+            </div>
+        </div>
         <!-- Open Terminal Button -->
         <button class="btn btn-open-terminal" id="openTerminalBtn">
             &#9889; Open AI Terminal
@@ -682,7 +700,7 @@ class SidebarProvider {
 
     <script>
         const vscode = acquireVsCodeApi();
-        let currentProvider = 'gemini';
+        let currentProvider = 'ollama';
 
         // ── Event Listeners ──
         document.getElementById('openTerminalBtn').addEventListener('click', () => {
@@ -734,6 +752,7 @@ class SidebarProvider {
 
             if (msg.type === 'state') {
                 currentProvider = msg.provider;
+                const safeMode = !!msg.safeMode;
 
                 // Update provider cards
                 document.querySelectorAll('.provider-card').forEach(c => {
@@ -767,6 +786,16 @@ class SidebarProvider {
                 const isOllama = msg.provider === 'ollama';
                 document.getElementById('apiKeySection').style.display = isOllama ? 'none' : 'block';
                 document.getElementById('ollamaField').classList.toggle('visible', isOllama);
+                document.getElementById('safeModeBanner').style.display = safeMode ? 'block' : 'none';
+
+                if (safeMode) {
+                    document.querySelectorAll('.provider-card').forEach(c => {
+                        if (c.dataset.provider !== 'ollama') c.style.display = 'none';
+                    });
+                    document.getElementById('apiKeySection').style.display = 'none';
+                } else {
+                    document.querySelectorAll('.provider-card').forEach(c => { c.style.display = ''; });
+                }
 
                 if (isOllama) {
                     dot.className = 'status-dot online';

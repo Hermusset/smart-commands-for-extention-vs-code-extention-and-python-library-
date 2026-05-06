@@ -78,7 +78,7 @@ Instead of memorizing hundreds of terminal commands, just describe what you want
 ```python
 # As a library
 from ai_terminal import translate, configure
-configure(provider="gemini", api_key="your-key")
+configure(safe_mode=False, provider="gemini", api_key="your-key")
 result = translate("list all docker containers")
 print(result.command)  # docker ps -a
 ```
@@ -179,9 +179,10 @@ extention/
 
 ## 🔒 Security
 
-- API keys are stored in **VS Code's SecretStorage** (VS Code) or **Chrome's local storage** (Chrome)
-- Keys are **never sent** to any server except the selected AI provider
-- All API calls go **directly** from your machine to the provider
+- **Local-only by default**: Safe mode is enabled by default in the VS Code extension and Python CLI/library (Ollama only).
+- **Chrome extension in this repo is local-only**: It only has permissions for `localhost` / `127.0.0.1` (no cloud providers).
+- **Endpoint guardrails**: Non-local Ollama endpoints are blocked by default to prevent sending prompts/paths to remote servers.
+- **API key storage**: VS Code uses `SecretStorage`; Chrome uses `chrome.storage.local` (not encrypted); Python uses `~/.ai-terminal/config.json` (plaintext).
 - No telemetry, no analytics, no data collection
 
 ## 📄 License

@@ -8,6 +8,7 @@ for translating natural English to terminal commands.
 import os
 import subprocess
 from typing import Optional
+from urllib.parse import urlparse
 
 from ai_terminal.config import (
     get_config,
@@ -66,15 +67,53 @@ class AITerminal:
         """
         config = get_config()
 
-        self.provider = provider or config.get("provider", "openai")
+        self.safe_mode = bool(config.get("safe_mode", True))
+        self.allow_remote_ollama_endpoint = bool(config.get("allow_remote_ollama_endpoint", False))
+
+        self.provider = provider or config.get("provider", "ollama")
         self.api_key = api_key or get_api_key(self.provider)
         self.model = model or get_model(self.provider)
         self.shell = shell or get_shell()
-        self.ollama_endpoint = ollama_endpoint or config.get(
-            "ollama_endpoint", "http://localhost:11434"
-        )
+        self.ollama_endpoint = ollama_endpoint or config.get("ollama_endpoint", "http://localhost:11434")
         self.save_history = save_history
         self.platform = get_platform()
+
+        if self.safe_mode and self.provider != "ollama":
+            raise ValueError(
+                "Safe mode is enabled (local-only): only provider='ollama' is allowed. "
+                "Disable it with: ait config --no-safe-mode"
+            )
+
+        if self.provider == "ollama":
+            self.ollama_endpoint = self._validated_ollama_endpoint(self.ollama_endpoint)
+
+    def _validated_ollama_endpoint(self, endpoint: str) -> str:
+        raw = str(endpoint or "").strip()
+        if not raw:
+            raise ValueError("Ollama endpoint is empty.")
+
+        if "://" not in raw:
+            raw = "http://" + raw
+
+        parsed = urlparse(raw)
+        if parsed.scheme not in ("http", "https"):
+            raise ValueError(f"Unsupported Ollama endpoint scheme: {parsed.scheme}")
+        if not parsed.hostname:
+            raise ValueError("Invalid Ollama endpoint.")
+        if parsed.username or parsed.password:
+            raise ValueError("Ollama endpoint must not include credentials.")
+
+        host = parsed.hostname.lower()
+        if not self.allow_remote_ollama_endpoint and host not in ("localhost", "127.0.0.1", "::1"):
+            raise ValueError(
+                f"Refusing to send prompts to non-local Ollama endpoint ({parsed.hostname}). "
+                f"To allow this, run: ait config --allow-remote-ollama-endpoint"
+            )
+
+        netloc = parsed.hostname
+        if parsed.port:
+            netloc += f":{parsed.port}"
+        return f"{parsed.scheme}://{netloc}"
 
     def _build_user_message(self, natural_language: str) -> str:
         """Build the user message with context."""

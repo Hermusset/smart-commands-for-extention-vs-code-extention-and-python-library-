@@ -56,6 +56,9 @@ chrome.commands.onCommand.addListener((command) => {
 
 async function handleTranslation(input, settings) {
     const { provider, apiKey, model } = settings;
+    if (provider !== 'ollama') {
+        throw new Error('Local-only build: only Ollama (local) is allowed.');
+    }
 
     const userMessage = `Shell: ${settings.shell || 'bash'}\n\nTranslate this to a terminal command: "${input}"`;
 
@@ -162,7 +165,14 @@ async function callGroq(apiKey, model, userMessage) {
 }
 
 async function callOllama(endpoint, model, userMessage) {
-    const response = await fetch(`${endpoint}/api/chat`, {
+    const url = normalizeUrlLikeEndpoint(endpoint);
+    if (url.username || url.password) throw new Error('Ollama endpoint must not include credentials.');
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+        throw new Error(`Unsupported Ollama endpoint protocol: ${url.protocol}`);
+    }
+    assertLocalhostUrl(url);
+
+    const response = await fetch(`${url.origin}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -178,6 +188,27 @@ async function callOllama(endpoint, model, userMessage) {
 
     const data = await response.json();
     return parseResponse(data.message?.content);
+}
+
+function normalizeUrlLikeEndpoint(endpoint) {
+    const raw = String(endpoint || '').trim();
+    if (!raw) throw new Error('Ollama endpoint is empty');
+    try {
+        return new URL(raw);
+    } catch {
+        return new URL(`http://${raw}`);
+    }
+}
+
+function assertLocalhostUrl(url) {
+    const host = (url.hostname || '').toLowerCase();
+    const isLocal =
+        host === 'localhost' ||
+        host === '127.0.0.1' ||
+        host === '::1';
+    if (!isLocal) {
+        throw new Error(`Refusing to send prompts to non-local Ollama endpoint (${url.hostname}).`);
+    }
 }
 
 function parseResponse(content) {

@@ -17,8 +17,11 @@ pip install .
 ### As a CLI Tool
 
 ```bash
-# First, configure your API key
-ait config --provider gemini --api-key YOUR_GEMINI_KEY
+# Default is local-only safe mode (Ollama)
+ait config --provider ollama --model llama3.2
+
+# To use a cloud provider, disable safe mode explicitly
+ait config --no-safe-mode --provider gemini --api-key YOUR_GEMINI_KEY
 
 # Translate commands
 ait "create a new git branch called feature-login"
@@ -41,7 +44,7 @@ ait history --clear
 
 # Show/change config
 ait config --show
-ait config --provider openai --api-key sk-...
+ait config --no-safe-mode --provider openai --api-key sk-...
 ait config --provider ollama --model llama3.2
 ```
 
@@ -51,7 +54,7 @@ ait config --provider ollama --model llama3.2
 from ai_terminal import translate, translate_and_run, configure
 
 # Configure (only needed once, stored in ~/.ai-terminal/config.json)
-configure(provider="gemini", api_key="YOUR_KEY")
+configure(safe_mode=False, provider="gemini", api_key="YOUR_KEY")
 
 # Simple translation
 result = translate("create a python virtual environment")
@@ -138,7 +141,7 @@ output['returncode']  # int
 
 ### `configure(**kwargs) → dict`
 ```python
-configure(provider="gemini", api_key="...", model="gemini-2.0-flash")
+configure(safe_mode=False, provider="gemini", api_key="...", model="gemini-2.0-flash")
 ```
 
 ### `AITerminal` class

@@ -76,11 +76,11 @@ async function handleOverlayTranslate() {
     document.getElementById('aiTermResult').innerHTML = '';
 
     chrome.storage.local.get(['aiTerminalSettings', 'apiKeys'], (data) => {
-        const settings = data.aiTerminalSettings || { provider: 'openai' };
+        const settings = data.aiTerminalSettings || { provider: 'ollama' };
         const keys = data.apiKeys || {};
 
         const translationSettings = {
-            provider: settings.provider || 'openai',
+            provider: settings.provider || 'ollama',
             apiKey: keys[settings.provider] || '',
             model: settings.model || '',
             shell: settings.shell || 'auto',

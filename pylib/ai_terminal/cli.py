@@ -306,13 +306,21 @@ def cmd_config(args):
             table.add_column("Setting", style="cyan bold")
             table.add_column("Value", style="white")
 
-            provider = config.get("provider", "openai")
+            provider = config.get("provider", "ollama")
             table.add_row("Provider", PROVIDER_NAMES.get(provider, provider))
             table.add_row(
                 "Model",
                 config.get("model") or DEFAULT_MODELS.get(provider, "default"),
             )
             table.add_row("Shell", config.get("shell", "auto"))
+            table.add_row(
+                "Safe Mode",
+                "✅ Enabled" if config.get("safe_mode", True) else "❌ Disabled",
+            )
+            table.add_row(
+                "Allow Remote Ollama Endpoint",
+                "✅ Yes" if config.get("allow_remote_ollama_endpoint") else "❌ No",
+            )
             table.add_row(
                 "Auto Execute",
                 "✅ Yes" if config.get("auto_execute") else "❌ No",
@@ -335,6 +343,8 @@ def cmd_config(args):
             print(f"  Provider: {config.get('provider')}")
             print(f"  Model: {config.get('model') or 'default'}")
             print(f"  Shell: {config.get('shell')}")
+            print(f"  Safe Mode: {config.get('safe_mode', True)}")
+            print(f"  Allow Remote Ollama Endpoint: {config.get('allow_remote_ollama_endpoint', False)}")
             print(f"  Auto Execute: {config.get('auto_execute')}")
             api_keys = config.get("api_keys", {})
             for p in ["openai", "gemini", "anthropic", "groq"]:
@@ -356,6 +366,10 @@ def cmd_config(args):
         changes["model"] = args.model
     if args.shell:
         changes["shell"] = args.shell
+    if args.safe_mode is not None:
+        changes["safe_mode"] = args.safe_mode
+    if args.allow_remote_ollama_endpoint is not None:
+        changes["allow_remote_ollama_endpoint"] = args.allow_remote_ollama_endpoint
     if args.ollama_endpoint:
         changes["ollama_endpoint"] = args.ollama_endpoint
     if args.auto_execute is not None:
@@ -487,6 +501,20 @@ Examples:
     config_parser.add_argument("--api-key", dest="api_key", help="Set API key for current provider")
     config_parser.add_argument("--model", help="Set model name")
     config_parser.add_argument("--shell", choices=["auto", "powershell", "cmd", "bash", "zsh"])
+    config_parser.add_argument(
+        "--safe-mode",
+        dest="safe_mode",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Enable/disable local-only safe mode (use --no-safe-mode to disable)",
+    )
+    config_parser.add_argument(
+        "--allow-remote-ollama-endpoint",
+        dest="allow_remote_ollama_endpoint",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Allow/disallow non-local Ollama endpoints (use --no-allow-remote-ollama-endpoint to disable)",
+    )
     config_parser.add_argument("--ollama-endpoint", dest="ollama_endpoint")
     config_parser.add_argument("--auto-execute", dest="auto_execute", type=bool)
     config_parser.add_argument("--show", action="store_true", help="Show current config")

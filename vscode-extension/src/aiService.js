@@ -41,14 +41,47 @@ class AIService {
         this.context = context;
     }
 
+    _isSafeModeEnabled() {
+        return vscode.workspace.getConfiguration('aiTerminal').get('safeMode', true);
+    }
+
     /** Get the currently configured provider */
     getProvider() {
-        return vscode.workspace.getConfiguration('aiTerminal').get('apiProvider', 'gemini');
+        const config = vscode.workspace.getConfiguration('aiTerminal');
+        const safeMode = config.get('safeMode', true);
+        if (safeMode) return 'ollama';
+        return config.get('apiProvider', 'gemini');
     }
 
     /** Get the stable model for a provider (auto-selected, not user-configurable) */
     getModel(provider) {
         return STABLE_MODELS[provider] || STABLE_MODELS.gemini;
+    }
+
+    _normalizeUrlLikeEndpoint(endpoint, defaultProtocol = 'http:') {
+        const raw = String(endpoint || '').trim();
+        if (!raw) throw new Error('Ollama endpoint is empty');
+        try {
+            return new URL(raw);
+        } catch {
+            // Allow "localhost:11434" style inputs
+            return new URL(`${defaultProtocol}//${raw}`);
+        }
+    }
+
+    _assertLocalhostUrl(url, allowRemote) {
+        if (allowRemote) return;
+        const host = (url.hostname || '').toLowerCase();
+        const isLocal =
+            host === 'localhost' ||
+            host === '127.0.0.1' ||
+            host === '::1';
+        if (!isLocal) {
+            throw new Error(
+                `Refusing to send prompts to non-local Ollama endpoint (${url.hostname}). ` +
+                `To allow this, set aiTerminal.allowRemoteOllamaEndpoint=true.`
+            );
+        }
     }
 
     /** Get the stored API key for a specific provider */
@@ -292,9 +325,18 @@ class AIService {
     }
 
     async _callOllama(model, userMessage, ct) {
-        const endpoint = vscode.workspace.getConfiguration('aiTerminal')
-            .get('ollamaEndpoint', 'http://localhost:11434');
-        const url = new URL(endpoint);
+        const config = vscode.workspace.getConfiguration('aiTerminal');
+        const endpoint = config.get('ollamaEndpoint', 'http://localhost:11434');
+        const allowRemote = config.get('allowRemoteOllamaEndpoint', false);
+        const url = this._normalizeUrlLikeEndpoint(endpoint);
+
+        if (url.username || url.password) {
+            throw new Error('Ollama endpoint must not include credentials.');
+        }
+        if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+            throw new Error(`Unsupported Ollama endpoint protocol: ${url.protocol}`);
+        }
+        this._assertLocalhostUrl(url, allowRemote);
 
         const body = JSON.stringify({
             model,

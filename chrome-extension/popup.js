@@ -1,5 +1,5 @@
 // AI Terminal Assistant - Chrome Extension Popup Logic
-let currentProvider = 'openai';
+let currentProvider = 'ollama';
 let settings = {};
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -72,11 +72,18 @@ function setupEventListeners() {
 function loadSettings() {
     chrome.storage.local.get(['aiTerminalSettings', 'apiKeys'], (data) => {
         settings = data.aiTerminalSettings || {
-            provider: 'openai', model: '', shell: 'auto',
+            provider: 'ollama', model: '', shell: 'auto',
             autoExecute: false, ollamaEndpoint: 'http://localhost:11434'
         };
         const apiKeys = data.apiKeys || {};
-        currentProvider = settings.provider || 'openai';
+        currentProvider = settings.provider || 'ollama';
+
+        // Local-only build: always use Ollama
+        if (currentProvider !== 'ollama') {
+            currentProvider = 'ollama';
+            settings.provider = 'ollama';
+            saveSettings();
+        }
         selectProvider(currentProvider);
 
         if (settings.model) document.getElementById('modelInput').value = settings.model;
@@ -91,6 +98,7 @@ function loadSettings() {
             }
         });
         updateKeyStatus(!!apiKeys[currentProvider]);
+        applySafeModeUI();
     });
 }
 
@@ -98,7 +106,26 @@ function saveSettings() {
     chrome.storage.local.set({ aiTerminalSettings: settings });
 }
 
+function applySafeModeUI() {
+    const safeMode = true;
+    document.querySelectorAll('.provider-card').forEach(card => {
+        const p = card.dataset.provider;
+        const disabled = safeMode && p !== 'ollama';
+        card.style.opacity = disabled ? '0.45' : '';
+        card.style.pointerEvents = disabled ? 'none' : '';
+    });
+
+    if (safeMode && currentProvider !== 'ollama') {
+        selectProvider('ollama');
+        showNotification('Local-only mode: switched to Ollama (local).');
+    }
+}
+
 function selectProvider(provider) {
+    if (provider !== 'ollama') {
+        showNotification('Local-only mode: only Ollama (local) is allowed.');
+        return;
+    }
     currentProvider = provider;
     settings.provider = provider;
     saveSettings();
@@ -158,6 +185,11 @@ function translateCommand() {
     const input = document.getElementById('inputText').value.trim();
     if (!input) return;
 
+    if (currentProvider !== 'ollama') {
+        showError('Local-only mode is enabled: only Ollama (local) is allowed.');
+        return;
+    }
+
     const loader = document.getElementById('loader');
     const resultArea = document.getElementById('resultArea');
     const btn = document.getElementById('translateBtn');
@@ -186,7 +218,7 @@ function translateCommand() {
                 provider: currentProvider, apiKey,
                 model: settings.model || '',
                 shell: settings.shell || 'auto',
-                ollamaEndpoint: settings.ollamaEndpoint || 'http://localhost:11434'
+                ollamaEndpoint: settings.ollamaEndpoint || 'http://localhost:11434',
             }
         }, (response) => {
             loader.classList.remove('active');

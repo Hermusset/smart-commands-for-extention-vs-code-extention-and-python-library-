@@ -54,7 +54,7 @@
       "properties": {
         "aiTerminal.apiProvider": {
           "type": "string",
-          "default": "gemini",
+          "default": "ollama",
           "enum": [
             "openai",
             "gemini",
@@ -63,6 +63,16 @@
             "ollama"
           ],
           "description": "AI provider for command translation"
+        },
+        "aiTerminal.safeMode": {
+          "type": "boolean",
+          "default": true,
+          "description": "Local-only safe mode. When enabled, only Ollama is allowed and no cloud providers can be used."
+        },
+        "aiTerminal.allowRemoteOllamaEndpoint": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow Ollama endpoint to point to a non-local host. Keep disabled to prevent sending prompts to remote servers."
         },
         "aiTerminal.shell": {
           "type": "string",

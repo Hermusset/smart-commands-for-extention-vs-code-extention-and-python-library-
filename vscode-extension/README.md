@@ -13,10 +13,15 @@
 
 1. Install the extension
 2. Click the ⚡ icon in the Activity Bar
-3. Select your AI provider (Gemini, OpenAI, Groq, etc.)
+3. Default is **Ollama (local)** with **safe mode** enabled
 4. Paste your API key and click **Save**
 5. Press `Ctrl+Shift+I` to open the **AI Terminal**
 6. Start typing in plain English!
+
+### Local-Only Safe Mode
+
+- `aiTerminal.safeMode` defaults to `true` (Ollama only).
+- `aiTerminal.allowRemoteOllamaEndpoint` defaults to `false` to prevent sending prompts to non-local servers.
 
 ## How It Works
 
